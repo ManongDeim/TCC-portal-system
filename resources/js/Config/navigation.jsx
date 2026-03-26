@@ -133,7 +133,7 @@ export const getHRLinks = (UserRole = 'Employee', auth) => {
             }
         ] : []),
                 {   
-            label: 'Pending Document Requests', 
+            label: 'Document Request', 
             href: route('hr.index'), 
             active: route().current('hr.index') 
         },
@@ -190,7 +190,7 @@ export const getHRAdminLinks = (auth) => {
             href: route('hr.index'),
             active: route().current('hr.index') 
         },
-        { label: 'Pending Document Requests',
+        { label: 'Pending Document Request',
             href: route('hr.admin.index'),
             active: route().current('hr.admin.index') 
         },
