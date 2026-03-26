@@ -21,5 +21,11 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // Ensure the three valid branches exist
+        $branches = ['Makati', 'Alabang', 'Greenhills'];
+        foreach ($branches as $branchName) {
+            \App\Models\Branch::firstOrCreate(['name' => $branchName]);
+        }
     }
 }

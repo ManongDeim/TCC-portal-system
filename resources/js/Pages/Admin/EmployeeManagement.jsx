@@ -116,37 +116,12 @@ export default function EmployeeManagement({ users = [], departments = [], posit
         });
     };
 
-    // For Branch
+    // For Branch (Edit Branch Assignments)
 
     const [isBranchModalOpen, setBranchModalOpen] = useState(false);
 
-    const{
-    data: branchData,
-    setData: setBranchData,
-    post: postBranch,
-    processing: branchProcessing,
-    errors: branchErrors,
-    clearErrors: clearBranchErrors,
-    reset: resetBranch
-    } = useForm({
-        branch_name: '',
-    });
-
     const closeBranchModal = () => {
         setBranchModalOpen(false);
-        clearBranchErrors();
-        resetBranch();
-    }
-
-    const submitBranch = (e) => {
-        e.preventDefault();
-        postBranch(route('admin.branches.store'), {
-            preserveScroll: true,
-            onSuccess: () => {
-                closeBranchModal();
-                resetBranch();
-            },
-        });
     }
 
     // For Users
@@ -364,7 +339,7 @@ export default function EmployeeManagement({ users = [], departments = [], posit
                             + Add Position
                         </button>
                         <button className="rounded-md border border-gray-300 bg-yellow-500 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-gray-700 hover:bg-yellow-600" onClick={() => setBranchModalOpen(true)}>
-                            + Add Branch
+                            Edit Branch
                         </button>
                         <button className="rounded-md border border-gray-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-gray-700 hover:bg-gray-50" onClick={() => setDepartmentModalOpen(true)}>
                             Edit Departments
@@ -523,37 +498,57 @@ export default function EmployeeManagement({ users = [], departments = [], posit
     </form>
 </Modal>
 
-            {/* Add Branch Modal */}
+            {/* Edit Branch Modal */}
 
             <Modal show={isBranchModalOpen} onClose={closeBranchModal}>
-                <form onSubmit={submitBranch} className="p-6">
+                <div className="p-6">
                     <h2 className="text-lg font-medium text-gray-900">
-                        Add New Branch
+                        Edit Branch Assignments
                     </h2>
                     <p className="mt-1 text-sm text-gray-600">
-                        Enter the name of the new clinic location.
+                        Modify branch assignments for existing employees. Only Makati, Alabang, and Greenhills branches are available.
                     </p>
 
-                    <div className="mt-6">
-                        <InputLabel htmlFor="branch_name" value="Branch Name" />
-                        <TextInput
-                            id="branch_name"
-                            className="mt-1 block w-full"
-                            value={branchData.name}
-                            onChange={(e) => setBranchData('name', e.target.value)}
-                            required
-                            placeholder="e.g. Makati"
-                        />
-                        <InputError message={branchErrors.name} className="mt-2" />
+                    <div className="mt-6 max-h-96 overflow-y-auto">
+                        <div className="space-y-4">
+                            {users.map((employee) => (
+                                <div key={employee.id} className="rounded-md border border-gray-200 p-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h3 className="font-medium text-gray-900">{employee.name}</h3>
+                                            <p className="text-sm text-gray-500">{employee.email}</p>
+                                            <p className="text-sm text-gray-500">{employee.department?.name} - {employee.position?.name}</p>
+                                        </div>
+                                        <button 
+                                            onClick={() => openEditUserModal(employee)}
+                                            className="rounded-md bg-blue-500 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-600"
+                                        >
+                                            Edit Branches
+                                        </button>
+                                    </div>
+                                    <div className="mt-2">
+                                        <span className="text-xs text-gray-500">Current branches:</span>
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                            {employee.branches && employee.branches.length > 0 ? (
+                                                employee.branches.map((branch) => (
+                                                    <span key={branch.id} className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                                                        {branch.name}
+                                                    </span>
+                                                ))
+                                            ) : (
+                                                <span className="text-xs text-gray-400 italic">No branches assigned</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="mt-6 flex justify-end">
-                        <SecondaryButton onClick={closeBranchModal}>Cancel</SecondaryButton>
-                        <PrimaryButton className="ms-3" disabled={branchProcessing}>
-                            Save Branch
-                        </PrimaryButton>
+                        <SecondaryButton onClick={closeBranchModal}>Close</SecondaryButton>
                     </div>
-                </form>
+                </div>
             </Modal>
 
 

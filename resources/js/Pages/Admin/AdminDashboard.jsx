@@ -2,7 +2,7 @@ import { getAdminLinks } from "@/Config/navigation";
 import SidebarLayout from "@/Layouts/SidebarLayout";
 import { Head } from "@inertiajs/react";
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ totalEmployees = 0, activeBranches = 0 }) {
 
     const adminLinks = getAdminLinks();
 
@@ -34,11 +34,11 @@ export default function AdminDashboard() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                             <div className="text-gray-500 text-sm font-medium">Total Employees</div>
-                            <div className="mt-2 text-3xl font-bold text-gray-900">24</div>
+                            <div className="mt-2 text-3xl font-bold text-gray-900">{totalEmployees}</div>
                         </div>
                         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                             <div className="text-gray-500 text-sm font-medium">Active Branches</div>
-                            <div className="mt-2 text-3xl font-bold text-gray-900">3</div>
+                            <div className="mt-2 text-3xl font-bold text-gray-900">{activeBranches}</div>
                         </div>
                         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                             <div className="text-gray-500 text-sm font-medium">System Status</div>

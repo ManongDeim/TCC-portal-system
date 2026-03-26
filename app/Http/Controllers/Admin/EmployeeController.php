@@ -22,7 +22,9 @@ class EmployeeController extends Controller
         $users = User::with(['department', 'position', 'branches'])->get();
         $positions = Position::all();
         $departments = Department::all();
-        $branches = Branch::all();
+        // Only allow these three valid branches
+        $validBranchNames = ['Makati', 'Alabang', 'Greenhills'];
+        $branches = Branch::whereIn('name', $validBranchNames)->get();
         $roles = Role::all();
 
         return Inertia::render('Admin/EmployeeManagement', [
@@ -38,6 +40,9 @@ class EmployeeController extends Controller
 
     public function storeUser(Request $request)
     {
+        $validBranchNames = ['Makati', 'Alabang', 'Greenhills'];
+        $validBranchIds = Branch::whereIn('name', $validBranchNames)->pluck('id')->toArray();
+        
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
@@ -45,8 +50,8 @@ class EmployeeController extends Controller
             'role_id' => 'required|exists:roles,id',
             'department_id' => 'required|exists:departments,id',
             'position_id' => 'required|exists:positions,id',
-            'branch_ids' => 'required|array',
-            'branch_ids.*' => 'exists:branches,id',
+            'branch_ids' => 'required|array|min:1',
+            'branch_ids.*' => 'in:' . implode(',', $validBranchIds),
         ]);
         try{
             $user = User::create([
@@ -169,6 +174,9 @@ class EmployeeController extends Controller
 
     public function updateUser(Request $request, User $user)
     {
+        $validBranchNames = ['Makati', 'Alabang', 'Greenhills'];
+        $validBranchIds = Branch::whereIn('name', $validBranchNames)->pluck('id')->toArray();
+        
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
@@ -177,7 +185,7 @@ class EmployeeController extends Controller
             'position_id' => 'required|exists:positions,id',
             'device_limit' => 'nullable|integer|min:1',
             'branch_ids' => 'required|array|min:1',
-            'branch_ids.*' => 'exists:branches,id',
+            'branch_ids.*' => 'in:' . implode(',', $validBranchIds),
         ]);
 
         try{

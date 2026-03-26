@@ -88,7 +88,27 @@ Route::middleware('auth')->group(function () {
     Route::middleware(['auth', AdminMiddleware::class])->prefix('admin')->name('admin')->group(function(){
 
     Route::get('/dashboard', function(){
-        return Inertia::render('Admin/AdminDashboard');
+        $users = \App\Models\User::with('branches')->get();
+        $totalEmployees = $users->count();
+        
+        // Valid branches
+        $validBranches = ['Makati', 'Alabang', 'Greenhills'];
+        
+        // Count active branches (branches that have at least one employee assigned)
+        $activeBranches = 0;
+        foreach ($validBranches as $branchName) {
+            $hasEmployees = $users->contains(function ($user) use ($branchName) {
+                return $user->branches->contains('name', $branchName);
+            });
+            if ($hasEmployees) {
+                $activeBranches++;
+            }
+        }
+        
+        return Inertia::render('Admin/AdminDashboard', [
+            'totalEmployees' => $totalEmployees,
+            'activeBranches' => $activeBranches
+        ]);
     })->name('.dashboard');
 
     // Employee Management
