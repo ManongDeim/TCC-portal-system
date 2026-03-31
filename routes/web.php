@@ -15,6 +15,7 @@ use App\Http\Controllers\HrRequestController;
 use App\Http\Controllers\HR\ManpowerRequestController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SupplierController;
+use App\Http\Controllers\PurchaseOrderController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -129,6 +130,9 @@ Route::middleware('auth')->group(function () {
     Route::delete('/users/{user}', [EmployeeController::class, 'destroy'])->name('.users.destroy');
     Route::delete('/departments/{department}', [EmployeeController::class, 'destroyDepartment'])->name('.departments.destroy');
     Route::delete('/roles/{role}', [EmployeeController::class, 'destroyRole'])->name('.roles.destroy');
+    Route::get('/employees/export', [EmployeeController::class, 'export'])->name('.employees.export');
+    Route::get('/employees/import-template', [EmployeeController::class, 'downloadTemplate'])->name('.employees.template');
+    Route::post('/employees/import', [EmployeeController::class, 'import'])->name('.employees.import');
     
 
 
@@ -224,7 +228,18 @@ Route::prefix('prpo')->name('prpo.')->middleware(['auth'])->group(function () {
     Route::put('/products/{product}', [ProductController::class, 'update'])->name('products.update');
     Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
     Route::post('/products/batch-destroy', [ProductController::class, 'batchDestroy'])->name('products.batch-destroy');
+
+    Route::get('/purchase-request/create', [App\Http\Controllers\PurchaseRequestController::class, 'create'])->name('purchase-requests.create');
+    Route::post('/purchase-request', [App\Http\Controllers\PurchaseRequestController::class, 'store'])->name('purchase-requests.store');
     
+    
+    Route::get('/approval-board', [App\Http\Controllers\PurchaseRequestController::class, 'approvalBoard'])->name('approval-board');
+    Route::patch('/purchase-requests/{purchaseRequest}/status', [App\Http\Controllers\PurchaseRequestController::class, 'updateStatus'])->name('purchase-requests.update-status');
+
+    Route::post('/purchase-requests/{purchaseRequest}/generate-pos', [PurchaseOrderController::class, 'generateFromPR'])
+    ->name('purchase-requests.generate-pos');
+    Route::get('/purchase-orders', [PurchaseOrderController::class, 'index'])->name('purchase-orders.index');
+    Route::put('/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'update'])->name('purchase-orders.update');
 });
 
 require __DIR__.'/auth.php';
