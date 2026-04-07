@@ -5,8 +5,12 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
 use App\Models\DocumentCategory;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Auth;
+use App\Notifications\NewDocumentAlert;
 use Inertia\Inertia;
 
 class DocumentController extends Controller
@@ -31,25 +35,35 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function store(Request $request){
+   public function store(Request $request){
         $request->validate([
             'title' => 'required|string|max:255',
             'category' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:20480', // 20MB max
+            // The limit is set right here to 20480 kilobytes (20MB)
+            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:51200', 
         ]);
 
         $filePath = $request->file('file')->store('documents');
 
         try{
-            Document::create([
-            'title' => $request->input('title'),
-            'category' => $request->input('category'),
-            'description' => $request->input('description'),
-            'file_path' => $filePath,
-        ]);
+            // 🟢 1. Save the document to a variable so we can use its title
+            $document = Document::create([
+                'title' => $request->input('title'),
+                'category' => $request->input('category'),
+                'description' => $request->input('description'),
+                'file_path' => $filePath,
+            ]);
 
-        return redirect()->back()->with('success', 'Document uploaded successfully.');
+            // 🟢 2. Grab every active user in the system
+            $allUsers = User::all();
+
+            // 🟢 3. Send the in-app notification to everyone!
+            if ($allUsers->isNotEmpty()) {
+                Notification::send($allUsers, new NewDocumentAlert($document->title, Auth::user()->name));
+            }
+
+            return redirect()->back()->with('success', 'Document uploaded successfully.');
         }catch(\Exception $e){
             return redirect()->back()->with('error', 'Failed to upload document: ' . $e->getMessage());
         }   

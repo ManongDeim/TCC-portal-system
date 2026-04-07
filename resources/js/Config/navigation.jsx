@@ -18,7 +18,7 @@ export const getDashboardLinks = () => [
         active: route().current('dashboard.mission-vision'),
     },
     {
-        label: 'Organizational Chart', 
+        label: 'Organizational Directory', 
         href: route('dashboard.org-chart'), 
         active: route().current('dashboard.org-chart')
     },
@@ -50,14 +50,14 @@ export const getAdminLinks = () => [
         active: route().current('admin.company-content.*'),
     },
     { 
-        label: 'Organizational Chart', 
+        label: 'Organizational Directory', 
         href: route('admin.org-chart.index'), 
         active: route().current('admin.org-chart.index') 
     },
     {
         label: 'System Logs & Security',
-        href: '#',
-        active: false,
+        href: route('admin.logs.index'), // Updated from '#'
+        active: route().current('admin.logs.*'), // Updated from false
     },
    
    
@@ -87,16 +87,18 @@ export const getDocumentSidebarLinks = (categories = [], activeCategory = 'Overv
 // Duty Meal Module Links
 
 export const getDutyMealLinks = () => [
+     {
+        label: 'Duty Meal Overview',
+        href: route('admin.duty-meals.index'),
+        active: route().current('admin.duty-meals.index'),
+    },
+    
     {
         label: 'Set Up Roster',
         href: route('admin.duty-meals.create'),
         active: route().current('admin.duty-meals.create'),
     },
-    {
-        label: 'Duty Meal Overview',
-        href: route('admin.duty-meals.index'),
-        active: route().current('admin.duty-meals.index'),
-    },
+   
     {
         label: 'Duty Meal Archive',
         href: route('admin.duty-meals.archive'),
@@ -220,26 +222,51 @@ export const getHRAdminLinks = (auth) => {
 };
 
 export const getPRPOLinks = (auth) => {
-    return [
-        { 
+    // Safely grab the role and make it lowercase
+    const userRole = auth?.user?.role?.name?.toLowerCase().trim() || '';
+    
+    // 🟢 Define exact role clusters
+    const isAdminOrDCSO = userRole === 'admin' || userRole.includes('director');
+    const isProcurement = userRole.includes('procurement');
+    const isInventory = userRole.includes('inventory');
+
+    const links = [];
+
+    // 2. PR/PO Request (Admin, DCSO, Procurement, Inventory)
+    if (isAdminOrDCSO || isProcurement || isInventory) {
+        links.push({ 
+            label: 'PR/PO Request', 
+            href: route('prpo.purchase-requests.create'), 
+            active: route().current('prpo.purchase-requests.*') 
+        });
+    }
+
+    // 3. Approval Board (Admin, DCSO, Procurement, Inventory)
+    if (isAdminOrDCSO || isProcurement || isInventory) {
+        links.push({ 
+            label: 'Approval Board', 
+            href: route('prpo.approval-board'), 
+            active: route().current('prpo.approval-board') || route().current('prpo.purchase-requests.update-status') 
+        });
+    }
+
+    // 4. PO Generation (ONLY Admin, DCSO, Procurement)
+    if (isAdminOrDCSO || isProcurement) {
+        links.push({ 
+            label: 'PO Generation', 
+            href: route('prpo.purchase-orders.index'), 
+            active: route().current('prpo.purchase-orders.*') 
+        });
+    }
+
+     // 1. Products Masterlist (ONLY Admin & DCSO)
+    if (isAdminOrDCSO) {
+        links.push({ 
             label: 'Products Masterlist', 
-            href: route('prpo.products.index'),
-            active: route().current('prpo.products.index') 
-        },
-        { 
-            label: 'PR/PO Request',
-            href: route('prpo.purchase-requests.create'), // Updated!
-            active: route().current('prpo.purchase-requests.create'), 
-        },
-        {
-            label: 'Approval Board',
-            href: route('prpo.approval-board'),
-            active: route().current('prpo.approval-board'),
-        },
-        {
-            label: 'PO Generation',
-            href: route('prpo.purchase-orders.index'),
-            active: route().current('prpo.purchase-orders.index'),
-        }
-    ];
+            href: route('prpo.products.index'), 
+            active: route().current('prpo.products.*') 
+        });
+    }
+
+    return links;
 };

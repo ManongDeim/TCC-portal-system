@@ -29,7 +29,34 @@ class User extends Authenticatable
         'authorized_device_ids',
         'department_id',
         'position_id',
+        'status',
     ];
+
+    protected $with = ['role'];
+
+    protected $appends = ['has_password', 'has_global_access'];  
+
+    public function getHasPasswordAttribute()
+    {
+        return !is_null($this->password);
+    }
+
+    public function getHasGlobalAccessAttribute()
+    {
+        if (!$this->role) {
+            return false;
+        }
+
+        $safeRoleName = strtolower(trim($this->role->name));
+
+        // Add ANY future top-level roles to this array!
+        $allowedRoles = [
+            'admin',
+            'director of corporate services and operations'
+        ];
+
+        return in_array($safeRoleName, $allowedRoles);
+    }
 
     /**
      * The attributes that should be hidden for serialization.

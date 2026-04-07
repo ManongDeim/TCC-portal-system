@@ -11,6 +11,8 @@ class SupplierController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:suppliers,name',
+            'contact_person' => 'nullable|string|max:255', 
+            'contact_number' => 'nullable|string|max:255', 
         ]);
 
         Supplier::create($validated);
@@ -22,6 +24,8 @@ class SupplierController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:suppliers,name,' . $supplier->id,
+            'contact_person' => 'nullable|string|max:255', 
+            'contact_number' => 'nullable|string|max:255', 
         ]);
 
         $supplier->update($validated);
@@ -40,6 +44,31 @@ class SupplierController extends Controller
                 return back()->withErrors(['error' => 'Cannot delete supplier. There are still products assigned to it.']);
             }
             return back()->withErrors(['error' => 'An error occurred while deleting the supplier.']);
+        }
+    }
+
+    public function toggleStatus(Supplier $supplier)
+    {
+        try {
+            if ($supplier->status === 'Disabled') {
+                $supplier->update(['status' => null]);
+                
+                // 🟢 CASCADE: Re-enable all products handled by this supplier
+                $supplier->products()->update(['status' => null]);
+                
+                $message = "Supplier '{$supplier->name}' and all their products have been re-enabled.";
+            } else {
+                $supplier->update(['status' => 'Disabled']);
+                
+                // 🟢 CASCADE: Disable all products handled by this supplier
+                $supplier->products()->update(['status' => 'Disabled']);
+                
+                $message = "Supplier '{$supplier->name}' and all their products have been disabled.";
+            }
+
+            return back()->with('success', $message);
+        } catch (\Exception $e) {
+            return back()->with('error', 'Failed to update supplier status: ' . $e->getMessage());
         }
     }
 }

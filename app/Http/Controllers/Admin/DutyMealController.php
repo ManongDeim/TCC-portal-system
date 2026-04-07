@@ -13,7 +13,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Notification;
 use Carbon\Carbon;
+use App\Notifications\DutyMealRosterCreated;
 
 class DutyMealController extends Controller
 {
@@ -147,7 +149,8 @@ class DutyMealController extends Controller
             'alt_meal' => 'nullable|string|max:255',
             'participants' => 'required|array|min:1',
             'participants.*.id' => 'required|exists:users,id',
-            'participants.*.is_graveyard'=> 'required|boolean',
+            // UPDATED HERE: Validation rule changed to accept shift_type
+            'participants.*.shift_type'=> 'required|string|in:day,graveyard,straight',
         ]);
 
         try {
@@ -165,7 +168,8 @@ class DutyMealController extends Controller
                         'duty_meal_id' => $dutyMeal->id,
                         'user_id' => $staff['id'],
                         'choice' => 'none',
-                        'is_graveyard' => $staff['is_graveyard'],
+                        // UPDATED HERE: Saving shift_type instead of is_graveyard
+                        'shift_type' => $staff['shift_type'],
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
@@ -173,6 +177,16 @@ class DutyMealController extends Controller
 
                 DutyMealParticipant::insert($participantsData);
             });
+            // 🟢 NEW: Notify all participants that they have been added to a roster
+            $userIds = array_column($validated['participants'], 'id');
+            $employeesToNotify = User::whereIn('id', $userIds)->get();
+            
+            // We need to grab the newly created DutyMeal so we can pass the date to the notification
+            $newDutyMeal = DutyMeal::latest()->first();
+
+            if ($employeesToNotify->isNotEmpty() && $newDutyMeal) {
+                Notification::send($employeesToNotify, new DutyMealRosterCreated($newDutyMeal));
+            }
 
             return redirect()->route('admin.duty-meals.index')->with('success', 'Duty roster created successfully!');
 
@@ -185,16 +199,23 @@ class DutyMealController extends Controller
     }
 
    
-    public function defaultParticipantToMain($id)
+   public function updateParticipantChoice(Request $request, $id)
     {
+        $request->validate([
+            'choice' => 'required|in:main,alt'
+        ]);
+
         $participant = DutyMealParticipant::findOrFail($id);
 
-        if ($participant->choice !== 'none') {
-           return back()->with('error', 'Staff member has already selected a meal.');
-        }
+        // Optional: If you only want to allow forcing a choice when they haven't picked yet, 
+        // you can uncomment the following 3 lines. Otherwise, it overrides their current choice.
+        // if ($participant->choice !== 'none') {
+        //     return back()->with('error', 'Staff member has already selected a meal.');
+        // }
 
-        $participant->update(['choice' => 'main']);
-        return back()->with('success', 'Meal choice forced to Main.');
+        $participant->update(['choice' => $request->choice]);
+        
+        return back()->with('success', "Meal choice successfully set to {$request->choice}.");
     }
 
 
@@ -234,11 +255,55 @@ class DutyMealController extends Controller
         $meal->participants()->create([
             'user_id' => $request->user_id,
             'choice' => 'none', // Default to none so they can pick their own meal
-            'is_graveyard' => false, 
+            // UPDATED HERE: Default to 'day' shift instead of is_graveyard = false
+            'shift_type' => 'day', 
             'custom_request' => null,
         ]);
 
         return back()->with('success', 'Staff member successfully added to the roster!');
+    }
+
+    public function updateParticipantShift(Request $request, $id)
+    {
+        $request->validate([
+            'shift_type' => 'required|string|in:day,graveyard,straight'
+        ]);
+
+        $participant = DutyMealParticipant::findOrFail($id);
+        
+        // Ensure the meal isn't locked before making changes
+        $meal = DutyMeal::findOrFail($participant->duty_meal_id);
+        if ($meal->is_locked) {
+            return back()->with('error', 'This roster is locked and cannot be edited.');
+        }
+
+        // Update the shift
+        $participant->update([
+            'shift_type' => $request->shift_type
+        ]);
+        
+        return back()->with('success', 'Shift successfully updated.');
+    }
+
+    public function updateMeals(Request $request, $id)
+    {
+        $request->validate([
+            'main_meal' => 'required|string|max:255',
+            'alt_meal' => 'nullable|string|max:255',
+        ]);
+
+        $meal = DutyMeal::findOrFail($id);
+
+        if ($meal->is_locked) {
+            return back()->with('error', 'This roster is locked and cannot be edited.');
+        }
+
+        $meal->update([
+            'main_meal' => $request->main_meal,
+            'alt_meal' => $request->alt_meal,
+        ]);
+
+        return back()->with('success', 'Meal options successfully updated.');
     }
 
     public function archive(Request $request)

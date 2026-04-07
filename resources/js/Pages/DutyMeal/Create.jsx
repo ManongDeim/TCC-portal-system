@@ -13,20 +13,28 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
     const dutyMealsLinks = getDutyMealLinks();
     const { system } = usePage().props;
     
+    // --- SMART DEFAULT BRANCH LOGIC ---
+    // If the user's primary branch exists in the dropdown, select it. 
+    // Otherwise, pick the first available branch. If no branches, leave blank.
+    const defaultBranch = branches.length > 0 
+        ? (branches.find(b => b.id === auth?.user?.branch_id)?.id || branches[0].id) 
+        : '';
+
     // --- FORM STATE ---
     const { data, setData, post, processing, errors } = useForm({
-        branch_id: '',
+        branch_id: defaultBranch,
         duty_date: '',
         main_meal: '',
         alt_meal: '',
         participants: [] 
     });
 
-    // --- UI FILTERS ---
+    // --- UI FILTERS & STATES ---
     const [departmentFilter, setDepartmentFilter] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
-
     const [filterPosition, setFilterPosition] = useState('');
+    
+    const [editingShiftId, setEditingShiftId] = useState(null);
 
     const availablePositions = (departmentFilter === 'All') 
         ? positions 
@@ -39,53 +47,23 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
     // --- LOOKUP HELPERS ---
     const getDepartmentName = (deptId) => {
         if (!deptId) return 'Unassigned';
-        const found = departments.find(d => d.id == deptId); // Using == to avoid type mismatch
+        const found = departments.find(d => d.id == deptId);
         return found ? found.name : 'Unassigned';
     };
 
     const getPositionName = (posId) => {
         if (!posId) return 'No Position';
-        const found = positions.find(pos => pos.id == posId); // Using == to avoid type mismatch
+        const found = positions.find(pos => pos.id == posId);
         return found ? found.name : 'No Position';
-    };
-
-    // --- HANDLERS ---
-    const toggleStaff = (employee) => {
-        const isAlreadySelected = data.participants.some(p => p.id === employee.id);
-        
-        if (isAlreadySelected) {
-            // Remove them
-            setData('participants', data.participants.filter(p => p.id !== employee.id));
-        } else {
-            // Add them, default graveyard to false
-            setData('participants', [...data.participants, { id: employee.id, name: employee.name, department: employee.department_id, position: employee.position_id,is_graveyard: false }]);
-        }
-    };
-
-    const toggleGraveyard = (employeeId) => {
-        setData('participants', data.participants.map(p => 
-            p.id === employeeId ? { ...p, is_graveyard: !p.is_graveyard } : p
-        ));
-    };
-
-    const submit = (e) => {
-        e.preventDefault();
-        post(route('admin.duty-meals.store'));
     };
 
     // --- FILTER LOGIC ---
     const filteredEmployees = employees.filter(emp => {
-
         const selectedBranchId = Number(data.branch_id);
-        
-        const matchesBranch = 
-            Number(emp.branch_id) === selectedBranchId || 
+        const matchesBranch = Number(emp.branch_id) === selectedBranchId || 
             (emp.assigned_branch_ids && emp.assigned_branch_ids.includes(selectedBranchId));
-
         const matchesDept = departmentFilter === 'All' || String(emp.department_id) === String(departmentFilter);
-
         const matchesPosition = filterPosition === '' || emp.position_id === parseInt(filterPosition);
-        
         
         const name = emp.name ? emp.name.toLowerCase() : '';
         const search = searchQuery.trim().toLowerCase();
@@ -93,6 +71,64 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
 
         return matchesBranch && matchesDept && matchesSearch && matchesPosition;
     });
+
+    // --- HANDLERS ---
+    const toggleStaff = (employee) => {
+        const isAlreadySelected = data.participants.some(p => p.id === employee.id);
+        
+        if (isAlreadySelected) {
+            setData('participants', data.participants.filter(p => p.id !== employee.id));
+        } else {
+            setData('participants', [...data.participants, { 
+                id: employee.id, 
+                name: employee.name, 
+                department: employee.department_id, 
+                position: employee.position_id,
+                shift_type: 'day' // Default shift
+            }]);
+        }
+    };
+
+    const changeShiftType = (employeeId, newShift) => {
+        setData('participants', data.participants.map(p => 
+            p.id === employeeId ? { ...p, shift_type: newShift } : p
+        ));
+    };
+
+    // Select All logic
+    const selectAllFiltered = () => {
+        const currentIds = new Set(data.participants.map(p => p.id));
+        const newParticipants = [...data.participants];
+        
+        filteredEmployees.forEach(emp => {
+            if (!currentIds.has(emp.id)) {
+                newParticipants.push({
+                    id: emp.id, 
+                    name: emp.name, 
+                    department: emp.department_id, 
+                    position: emp.position_id, 
+                    shift_type: 'day'
+                });
+            }
+        });
+        setData('participants', newParticipants);
+    };
+
+    // Deselect All logic
+    const deselectAllFiltered = () => {
+        const filteredIds = new Set(filteredEmployees.map(emp => emp.id));
+        setData('participants', data.participants.filter(p => !filteredIds.has(p.id)));
+    };
+
+    const submit = (e) => {
+        e.preventDefault();
+        post(route('admin.duty-meals.store'));
+    };
+
+    // Check if all currently visible employees are already selected
+    const allFilteredSelected = filteredEmployees.length > 0 && 
+        filteredEmployees.every(emp => data.participants.some(p => p.id === emp.id));
+
 
     return (
         <SidebarLayout activeModule="Duty Meals"
@@ -132,9 +168,15 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
                     
                     <div>
                         <InputLabel htmlFor="branch_id" value="Branch" />
-                        <select id="branch_id" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                            value={data.branch_id} onChange={e => setData('branch_id', e.target.value)} required>
-                            <option value="" disabled>Select a branch...</option>
+                        <select 
+                            id="branch_id" 
+                            className={`mt-1 block w-full rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 
+                                ${branches.length <= 1 ? 'bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed' : 'border-gray-300'}`}
+                            value={data.branch_id} 
+                            onChange={e => setData('branch_id', e.target.value)} 
+                            disabled={branches.length <= 1}
+                            required
+                        >
                             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
                         <InputError message={errors.branch_id} className="mt-2" />
@@ -160,15 +202,40 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
                     
                     {/* LEFT SIDE: Employee Pool (5 columns) */}
                     <div className="lg:col-span-5 bg-white rounded-lg shadow-sm border border-gray-100 p-5 flex flex-col h-[600px]">
-                        <h2 className="text-lg font-medium text-gray-900 mb-4">Employee Pool</h2>
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-lg font-medium text-gray-900">Employee Pool</h2>
+                            <div className="flex gap-2 text-sm">
+                                <button 
+                                    type="button" 
+                                    onClick={allFilteredSelected ? deselectAllFiltered : selectAllFiltered} 
+                                    className={`inline-flex items-center px-2.5 py-1.5 border shadow-sm text-xs font-medium rounded focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors
+                                        ${allFilteredSelected 
+                                            ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100 focus:ring-red-500' 
+                                            : 'border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 focus:ring-indigo-500'}`}
+                                >
+                                    {allFilteredSelected ? (
+                                        <>
+                                            <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                            Deselect All
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                            Select All
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
                         
                         {/* Filters */}
-                        <div className="flex gap-2 mb-4">
-                            <TextInput placeholder="Search name..." className="w-full text-sm"
-                                value={searchQuery} onChange={e => {setSearchQuery(e.target.value);
-                                                                    setFilterPosition('');
+                        <div className="flex gap-2 mb-4 w-full">
+                            <TextInput placeholder="Search name..." className="flex-1 text-sm min-w-[100px]"
+                                value={searchQuery} onChange={e => {
+                                    setSearchQuery(e.target.value);
+                                    setFilterPosition('');
                                 }} />
-                            <select className="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+                            <select className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm min-w-[100px]"
                                 value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)}>
                                 <option value="All">All Depts</option>
                                 {departments.map(dept => (
@@ -177,7 +244,7 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
                             </select>
 
                             <select value={filterPosition} onChange={(e) => setFilterPosition(e.target.value)}
-                            className="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm">
+                            className="flex-1 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm min-w-[100px]">
                                 <option value="">All Positions</option>
                                 {availablePositions.map((pos) => (<option key={pos.id} value={pos.id}>{pos.name}</option>))}
                             </select>
@@ -236,10 +303,10 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
                                 </div>
                             ) : (
                                 <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-white sticky top-0">
+                                    <thead className="bg-white sticky top-0 z-10">
                                         <tr>
                                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                                            <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Shift Type</th>
+                                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shift</th>
                                             <th className="px-5 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                                         </tr>
                                     </thead>
@@ -254,17 +321,57 @@ export default function CreateDutyMeal({ auth, employees = [], branches = [], de
                                                         {getPositionName(p.position)}
                                                     </div>
                                                 </td>
-                                                <td className="px-5 py-3 whitespace-nowrap text-center">
-                                                    <button type="button" onClick={() => toggleGraveyard(p.id)}
-                                                        className={`inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white transition-colors focus:outline-none 
-                                                            ${p.is_graveyard ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-500 hover:bg-amber-600'}`}
-                                                    >
-                                                        {p.is_graveyard ? '🌙 Graveyard' : '☀️ Day Shift'}
-                                                    </button>
+                                                
+                                                {/* Inline Editable Badges matching the 1st image */}
+                                                <td 
+                                                    className="px-5 py-3 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors"
+                                                    onClick={() => setEditingShiftId(p.id)}
+                                                >
+                                                    {editingShiftId === p.id ? (
+                                                        <div className="relative inline-block">
+                                                            <select 
+                                                                autoFocus
+                                                                value={p.shift_type || 'day'}
+                                                                onChange={(e) => {
+                                                                    changeShiftType(p.id, e.target.value);
+                                                                    setEditingShiftId(null);
+                                                                }}
+                                                                onBlur={() => setEditingShiftId(null)}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className={`appearance-none inline-flex items-center py-0.5 pl-1.5 sm:pl-2 pr-5 sm:pr-6 text-[9px] sm:text-[10px] font-medium rounded border shadow-sm focus:outline-none focus:ring-1 focus:ring-offset-0 cursor-pointer transition-colors
+                                                                    ${!p.shift_type ? 'bg-gray-100 text-gray-800 border-gray-300 focus:ring-gray-400' :
+                                                                    p.shift_type === 'graveyard' ? 'bg-indigo-100 text-indigo-800 border-indigo-200 focus:ring-indigo-400' : 
+                                                                    p.shift_type === 'straight' ? 'bg-emerald-100 text-emerald-800 border-emerald-200 focus:ring-emerald-400' : 
+                                                                    'bg-amber-100 text-amber-800 border-amber-200 focus:ring-amber-400'}`}
+                                                            >
+                                                                <option value="day">☀️ Day Shift</option>
+                                                                <option value="straight">⏱️ Straight</option>
+                                                                <option value="graveyard">🌙 Graveyard</option>
+                                                            </select>
+                                                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1 text-current opacity-60">
+                                                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div title="Click to edit shift">
+                                                            {p.shift_type === 'graveyard' && <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-800 border border-indigo-200">🌙 Graveyard</span>}
+                                                            {p.shift_type === 'straight' && <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">⏱️ Straight</span>}
+                                                            {(p.shift_type === 'day' || !p.shift_type) && <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-200">☀️ Day Shift</span>}
+                                                        </div>
+                                                    )}
                                                 </td>
+
+                                                {/* Cleaned up action row with icon */}
                                                 <td className="px-5 py-3 whitespace-nowrap text-right text-sm font-medium">
-                                                    <button type="button" onClick={() => toggleStaff(p)} className="text-red-600 hover:text-red-900">
-                                                        Remove
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => toggleStaff(p)} 
+                                                        className="rounded-full p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus:outline-none"
+                                                        title="Remove from Roster"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                        </svg>
                                                     </button>
                                                 </td>
                                             </tr>
