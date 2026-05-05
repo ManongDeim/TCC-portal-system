@@ -1,5 +1,5 @@
 import { getAdminLinks } from "@/Config/navigation";
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Head, router } from '@inertiajs/react';
 import SidebarLayout from '@/Layouts/SidebarLayout';
 import Pagination from '@/Components/Pagination';
@@ -14,6 +14,20 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
 
     const startDatePickerRef = useRef(null);
     const endDatePickerRef = useRef(null);
+
+    // --- SILENT REAL-TIME POLLING LOGIC ---
+    useEffect(() => {
+        const interval = setInterval(() => {
+            router.reload({
+                only: ['logs'], // Only fetch the 'logs' prop to save bandwidth
+                preserveState: true, // Keep search terms/filters intact
+                preserveScroll: true, // Don't snap the user back to the top
+            });
+        }, 5000); // Polls every 5 seconds
+        
+        // Cleanup interval on unmount
+        return () => clearInterval(interval);
+    }, []); // Empty dependency array ensures this runs continuously while the component is mounted
 
     // --- DATE HELPERS ---
     function formatDateInput(value) {
@@ -45,10 +59,8 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
             Number.isNaN(month) ||
             Number.isNaN(day) ||
             Number.isNaN(year) ||
-            month < 1 ||
-            month > 12 ||
-            day < 1 ||
-            day > 31
+            month < 1 || month > 12 ||
+            day < 1 || day > 31
         ) {
             return '';
         }
@@ -94,6 +106,19 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
         router.get(route('admin.logs.index'));
     };
 
+    const handleExport = () => {
+        const params = new URLSearchParams({
+            search,
+            module: moduleFilter,
+            action: actionFilter,
+            status: statusFilter,
+            start_date: mmddyyyyToISO(startDate),
+            end_date: mmddyyyyToISO(endDate),
+        }).toString();
+        
+        window.location.href = route('admin.logs.export') + '?' + params;
+    };
+
     const getStatusBadge = (status) => {
         const styles = {
             success: 'bg-green-100 text-green-800 border-green-200',
@@ -116,7 +141,7 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
         >
             <Head title="System Logs" />
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6 relative">
                 
                 {/* Filters */}
                 <form onSubmit={handleFilter} className="flex flex-col gap-4 mb-6">
@@ -152,7 +177,7 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
                             <option value="Profile">Profile</option>
                         </select>
 
-                        {/* ACTIONS (FIXED EXACT MATCHES) */}
+                        {/* ACTIONS */}
                         <select
                             className="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm w-full"
                             value={actionFilter}
@@ -184,7 +209,7 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
                             <input
                                 type="text"
                                 placeholder="Start Date (MM/DD/YYYY)"
-                                className="border-gray-300 rounded-md w-full pr-10"
+                                className="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md w-full pr-10"
                                 value={startDate}
                                 onChange={(e) => setStartDate(formatDateInput(e.target.value))}
                             />
@@ -205,7 +230,7 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
                             <input
                                 type="text"
                                 placeholder="End Date (MM/DD/YYYY)"
-                                className="border-gray-300 rounded-md w-full pr-10"
+                                className="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md w-full pr-10"
                                 value={endDate}
                                 onChange={(e) => setEndDate(formatDateInput(e.target.value))}
                             />
@@ -223,52 +248,76 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
 
                     </div>
 
-                    <div className="flex gap-2">
-                        <button className="bg-slate-800 text-white px-4 py-2 rounded-md">
-                            Filter
-                        </button>
-                        <button type="button" onClick={clearFilters} className="bg-gray-200 px-4 py-2 rounded-md">
-                            Clear
+                    {/* BUTTON ACTIONS */}
+                    <div className="flex justify-between items-center w-full mt-2 border-t pt-4 border-gray-100">
+                        {/* Left Side: Filter & Clear */}
+                        <div className="flex gap-2">
+                            <button type="submit" className="bg-slate-800 hover:bg-slate-700 transition duration-150 text-white px-4 py-2 rounded-md font-medium text-sm">
+                                Filter Results
+                            </button>
+                            <button type="button" onClick={clearFilters} className="bg-gray-100 hover:bg-gray-200 transition duration-150 text-gray-800 px-4 py-2 rounded-md font-medium text-sm">
+                                Clear Filters
+                            </button>
+                        </div>
+
+                        {/* Right Side: Export */}
+                        <button 
+                            type="button" 
+                            onClick={handleExport}
+                            className="border border-gray-300 bg-white hover:bg-gray-50 transition duration-150 text-gray-700 px-4 py-2 rounded-md shadow-sm font-medium flex items-center gap-2 text-sm"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Export Logs
                         </button>
                     </div>
                 </form>
 
                 {/* TABLE */}
-                <div className="overflow-auto border rounded-lg">
+                <div className="overflow-auto border rounded-lg relative">
                     <table className="min-w-full text-sm">
-                        <thead className="bg-gray-50">
+                        <thead className="bg-gray-50 border-b">
                             <tr>
-                                <th className="px-6 py-3 text-left">Timestamp</th>
-                                <th className="px-6 py-3 text-left">User</th>
-                                <th className="px-6 py-3 text-left">Module & Action</th>
-                                <th className="px-6 py-3 text-left">Description</th>
-                                <th className="px-6 py-3 text-left">Security</th>
-                                <th className="px-6 py-3 text-left">Status</th>
+                                <th className="px-6 py-3 text-left font-semibold text-gray-700 uppercase tracking-wider text-xs">Timestamp</th>
+                                <th className="px-6 py-3 text-left font-semibold text-gray-700 uppercase tracking-wider text-xs">User</th>
+                                <th className="px-6 py-3 text-left font-semibold text-gray-700 uppercase tracking-wider text-xs">Module & Action</th>
+                                <th className="px-6 py-3 text-left font-semibold text-gray-700 uppercase tracking-wider text-xs">Description</th>
+                                <th className="px-6 py-3 text-left font-semibold text-gray-700 uppercase tracking-wider text-xs">Security</th>
+                                <th className="px-6 py-3 text-left font-semibold text-gray-700 uppercase tracking-wider text-xs">Status</th>
                             </tr>
                         </thead>
 
-                        <tbody>
+                        <tbody className="divide-y divide-gray-100 bg-white">
                             {logs.data.map((log) => (
-                                <tr key={log.id} className="border-b">
-                                    <td className="px-6 py-4">
-                                        {new Date(log.created_at).toLocaleString('en-US')}
+                                <tr key={log.id} className="hover:bg-gray-50 transition duration-150">
+                                    <td className="px-6 py-4 whitespace-nowrap text-gray-600 font-mono text-xs">
+                                        {new Date(log.created_at).toLocaleString('en-US', {
+                                            month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit'
+                                        })}
                                     </td>
-                                    <td className="px-6 py-4">
+                                    <td className="px-6 py-4 font-medium text-gray-900">
                                         {log.user ? log.user.name : 'System'}
                                     </td>
-                                    <td className="px-6 py-4">
-                                        {log.module} <br />
-                                        <span className="text-xs text-gray-500">{log.action}</span>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="font-medium text-gray-800">{log.module}</div>
+                                        <div className="text-xs font-semibold text-indigo-600 mt-0.5">{log.action}</div>
                                     </td>
-                                    <td className="px-6 py-4">{log.description}</td>
-                                    <td className="px-6 py-4">IP: {log.ip_address}</td>
-                                    <td className="px-6 py-4">{getStatusBadge(log.status)}</td>
+                                    <td className="px-6 py-4 text-gray-600 min-w-[200px]">{log.description}</td>
+                                    <td className="px-6 py-4 text-gray-500 font-mono text-xs whitespace-nowrap">
+                                        <span className="bg-gray-100 px-2 py-1 rounded">IP: {log.ip_address}</span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(log.status)}</td>
                                 </tr>
                             ))}
+                            
                             {logs.data.length === 0 && (
                                 <tr>
-                                    <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
-                                        No logs found matching your criteria.
+                                    <td colSpan="6" className="px-6 py-8 text-center text-gray-500 bg-gray-50">
+                                        <div className="flex flex-col items-center justify-center">
+                                            <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                            No logs found matching your criteria.
+                                        </div>
                                     </td>
                                 </tr>
                             )}
@@ -276,6 +325,7 @@ export default function SystemLogsIndex({ auth, logs, filters }) {
                     </table>
                 </div>
 
+                {/* Pagination component */}
                 <div className="mt-6">
                    <Pagination links={logs.links} />
                 </div>

@@ -9,7 +9,6 @@ export default function HRAdminOverview({ auth, requests }) {
     const hrLinks = getHRAdminLinks(auth);
     const { system } = usePage().props;
 
-    // 🟢 NEW: Define who is allowed to click the action buttons!
     const currentRole = auth.user?.role?.name || 'Guest';
     const roleName = currentRole.toLowerCase();
     const canAct = ['admin', 'hrbp'].includes(roleName);
@@ -17,8 +16,11 @@ export default function HRAdminOverview({ auth, requests }) {
     const requestList = requests || [];
     const ITEMS_PER_PAGE = 10;
 
-    // --- TAB STATE ---
+    // --- TAB & FILTER STATES ---
     const [activeTab, setActiveTab] = useState('action-required');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
 
     // --- SORT STATE ---
     const [sortField, setSortField] = useState('date');
@@ -38,11 +40,8 @@ export default function HRAdminOverview({ auth, requests }) {
 
     const renderHeaderSortButton = (field) => {
         const isActive = sortField === field;
-
-        const upClass =
-            isActive && sortDirection === 'asc' ? 'text-gray-900' : 'text-gray-300';
-        const downClass =
-            isActive && sortDirection === 'desc' ? 'text-gray-900' : 'text-gray-300';
+        const upClass = isActive && sortDirection === 'asc' ? 'text-gray-900' : 'text-gray-300';
+        const downClass = isActive && sortDirection === 'desc' ? 'text-gray-900' : 'text-gray-300';
 
         return (
             <button
@@ -50,30 +49,12 @@ export default function HRAdminOverview({ auth, requests }) {
                 onClick={() => toggleSort(field)}
                 className="ml-2 inline-flex items-center justify-center hover:opacity-80 transition"
             >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    className="w-4 h-4"
-                >
-                    <g
-                        className={upClass}
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="w-4 h-4">
+                    <g className={upClass} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M7 17V7" />
                         <path d="M4 10l3-3 3 3" />
                     </g>
-
-                    <g
-                        className={downClass}
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    >
+                    <g className={downClass} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M17 7v10" />
                         <path d="M14 14l3 3 3-3" />
                     </g>
@@ -96,57 +77,28 @@ export default function HRAdminOverview({ auth, requests }) {
         setTimeout(() => setSelectedRequest(null), 300);
     };
 
-    // --- REJECTION MODAL STATE ---
-    const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-    const [rejectingId, setRejectingId] = useState(null);
-    const [rejectReason, setRejectReason] = useState('');
-
-
-    // --- ACCEPT MODAL STATE ---
-    const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
-    const [acceptingId, setAcceptingId] = useState(null);
+    // --- APPROVE MODAL STATE ---
+    const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
+    const [approvingId, setApprovingId] = useState(null);
 
     // --- ACTION HANDLER ---
     const handleAction = (id, actionType) => {
-        if (actionType === 'reject') {
-            setRejectingId(id);
-            setRejectReason('');
-            setIsRejectModalOpen(true);
-            return;
-        }
-
-        if (actionType === 'accept') {
-            setAcceptingId(id);
-            setIsAcceptModalOpen(true);
+        if (actionType === 'approve') {
+            setApprovingId(id);
+            setIsApproveModalOpen(true);
             return;
         }
     };
 
-    // --- SUBMIT REJECTION ---
-    const submitRejection = (e) => {
-        e.preventDefault();
-        router.patch(route('hr.admin.update-status', rejectingId), {
-            action: 'reject',
-            remarks: rejectReason
+    // --- SUBMIT APPROVAL ---
+    const submitApprove = () => {
+        router.patch(route('hr.admin.update-status', approvingId), {
+            action: 'approve'
         }, {
             preserveScroll: true,
             onSuccess: () => {
-                setIsRejectModalOpen(false);
-                setRejectingId(null);
-                setRejectReason('');
-            }
-        });
-    };
-
-    // --- SUBMIT ACCEPTANCE ---
-    const submitAccept = () => {
-        router.patch(route('hr.admin.update-status', acceptingId), {
-            action: 'accept'
-        }, {
-            preserveScroll: true,
-            onSuccess: () => {
-                setIsAcceptModalOpen(false);
-                setAcceptingId(null);
+                setIsApproveModalOpen(false);
+                setApprovingId(null);
             }
         });
     };
@@ -156,20 +108,49 @@ export default function HRAdminOverview({ auth, requests }) {
             case 'Pending HR': return 'bg-amber-100 text-amber-800 border-amber-200';
             case 'General Accounting': return 'bg-blue-100 text-blue-800 border-blue-200';
             case 'Released': return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-            case 'Rejected': return 'bg-red-100 text-red-800 border-red-200';
             default: return 'bg-gray-100 text-gray-800 border-gray-200';
         }
     };
 
-    // --- TAB FILTERING ---
+    // --- TAB & SEARCH/DATE FILTERING ---
     const filteredRequests = useMemo(() => {
         return requestList.filter((req) => {
-            if (activeTab === 'action-required') return req.status === 'Pending HR';
-            if (activeTab === 'in-progress') return req.status === 'General Accounting';
-            if (activeTab === 'completed') return req.status === 'Released' || req.status === 'Rejected';
-            return true;
+            // 1. Tab Filter
+            if (activeTab === 'action-required' && req.status !== 'Pending HR') return false;
+            if (activeTab === 'in-progress' && req.status !== 'General Accounting') return false;
+            if (activeTab === 'completed' && req.status !== 'Released') return false;
+
+            // 2. Search Filter (by Employee Name)
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase().trim();
+                const employeeName = (req.user?.name || req.name || '').toLowerCase();
+                
+                if (!employeeName.includes(query)) {
+                    return false;
+                }
+            }
+
+            // 3. Date Range Filter
+            let matchesDate = true;
+            if (startDate || endDate) {
+                const reqDate = new Date(req.created_at);
+                reqDate.setHours(0, 0, 0, 0);
+
+                if (startDate) {
+                    const start = new Date(startDate);
+                    start.setHours(0, 0, 0, 0);
+                    if (reqDate < start) matchesDate = false;
+                }
+                if (endDate) {
+                    const end = new Date(endDate);
+                    end.setHours(23, 59, 59, 999);
+                    if (reqDate > end) matchesDate = false;
+                }
+            }
+
+            return matchesDate;
         });
-    }, [requestList, activeTab]);
+    }, [requestList, activeTab, searchQuery, startDate, endDate]);
 
     // --- SORTING ---
     const sortedRequests = useMemo(() => {
@@ -182,17 +163,14 @@ export default function HRAdminOverview({ auth, requests }) {
                     aValue = (a.user?.name || '').toLowerCase();
                     bValue = (b.user?.name || '').toLowerCase();
                     break;
-
                 case 'date':
                     aValue = new Date(a.created_at).getTime();
                     bValue = new Date(b.created_at).getTime();
                     return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
-
                 case 'type':
                     aValue = (a.type === 'COE' ? 'COE' : 'Form 2316').toLowerCase();
                     bValue = (b.type === 'COE' ? 'COE' : 'Form 2316').toLowerCase();
                     break;
-
                 default:
                     return 0;
             }
@@ -206,10 +184,10 @@ export default function HRAdminOverview({ auth, requests }) {
         });
     }, [filteredRequests, sortField, sortDirection]);
 
-    // --- RESET PAGE WHEN TAB OR SORT CHANGES ---
+    // --- RESET PAGE WHEN FILTERS CHANGE ---
     useEffect(() => {
         setCurrentPage(1);
-    }, [activeTab, sortField, sortDirection]);
+    }, [activeTab, sortField, sortDirection, searchQuery, startDate, endDate]);
 
     const totalPages = Math.max(1, Math.ceil(sortedRequests.length / ITEMS_PER_PAGE));
 
@@ -233,14 +211,14 @@ export default function HRAdminOverview({ auth, requests }) {
 
                     <div className="mb-6">
                         <h1 className="text-2xl font-semibold text-gray-900">Pending Document Requests</h1>
-                        <p className="text-gray-500 text-sm mt-1">Review, approve, or reject employee document requests.</p>
+                        <p className="text-gray-500 text-sm mt-1">Review and approve employee document requests.</p>
                     </div>
 
                     {/* TABS */}
-                    <div className="border-b border-gray-200 mb-6 flex gap-6">
+                    <div className="border-b border-gray-200 mb-6 flex gap-6 overflow-x-auto">
                         <button
                             onClick={() => setActiveTab('action-required')}
-                            className={`pb-3 font-semibold text-sm border-b-2 transition-colors ${
+                            className={`pb-3 font-semibold text-sm border-b-2 transition-colors whitespace-nowrap ${
                                 activeTab === 'action-required'
                                     ? 'border-indigo-600 text-indigo-600'
                                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -248,10 +226,9 @@ export default function HRAdminOverview({ auth, requests }) {
                         >
                             Action Required
                         </button>
-
                         <button
                             onClick={() => setActiveTab('in-progress')}
-                            className={`pb-3 font-semibold text-sm border-b-2 transition-colors ${
+                            className={`pb-3 font-semibold text-sm border-b-2 transition-colors whitespace-nowrap ${
                                 activeTab === 'in-progress'
                                     ? 'border-indigo-600 text-indigo-600'
                                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -259,10 +236,9 @@ export default function HRAdminOverview({ auth, requests }) {
                         >
                             In Progress
                         </button>
-
                         <button
                             onClick={() => setActiveTab('completed')}
-                            className={`pb-3 font-semibold text-sm border-b-2 transition-colors ${
+                            className={`pb-3 font-semibold text-sm border-b-2 transition-colors whitespace-nowrap ${
                                 activeTab === 'completed'
                                     ? 'border-indigo-600 text-indigo-600'
                                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -272,11 +248,69 @@ export default function HRAdminOverview({ auth, requests }) {
                         </button>
                     </div>
 
+                    {/* 🟢 FILTER WIDGET (Search + Dates) */}
+                    <div className="mb-6 bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Live Search Bar */}
+                            <div className="relative">
+                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Search Employee</label>
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Type a name..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="block w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Start Date */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Start Date</label>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="block w-full px-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
+                                />
+                            </div>
+
+                            {/* End Date */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">End Date</label>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="block w-full px-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Reset Filters Button */}
+                        {(searchQuery || startDate || endDate) && (
+                            <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
+                                <button
+                                    onClick={() => { setSearchQuery(''); setStartDate(''); setEndDate(''); }}
+                                    className="text-sm text-gray-500 hover:text-gray-800 font-semibold bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-md transition-colors"
+                                >
+                                    Clear Filters
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
                     {/* TABLE CONTAINER */}
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
                         {sortedRequests.length === 0 ? (
                             <div className="p-12 text-center text-gray-500">
-                                No requests found in this category.
+                                {searchQuery || startDate || endDate ? 'No requests match your current filters.' : 'No requests found in this category.'}
                             </div>
                         ) : (
                             <>
@@ -290,21 +324,18 @@ export default function HRAdminOverview({ auth, requests }) {
                                                         {renderHeaderSortButton('date')}
                                                     </div>
                                                 </th>
-
                                                 <th className="px-6 py-4">
                                                     <div className="flex items-center">
                                                         <span>Requestor</span>
                                                         {renderHeaderSortButton('requestor')}
                                                     </div>
                                                 </th>
-
                                                 <th className="px-6 py-4">
                                                     <div className="flex items-center">
                                                         <span>Document Type</span>
                                                         {renderHeaderSortButton('type')}
                                                     </div>
                                                 </th>
-
                                                 <th className="px-6 py-4">Details / Reason</th>
                                                 <th className="px-6 py-4">Status</th>
                                                 <th className="px-6 py-4 text-right">Actions</th>
@@ -357,20 +388,13 @@ export default function HRAdminOverview({ auth, requests }) {
                                                         onClick={(e) => e.stopPropagation()}
                                                     >
                                                         {activeTab === 'action-required' && req.status === 'Pending HR' ? (
-                                                            // 🟢 NEW: Check if the user is allowed to act!
                                                             canAct ? (
                                                                 <div className="flex items-center justify-end gap-2">
                                                                     <button
-                                                                        onClick={() => handleAction(req.id, 'reject')}
-                                                                        className="rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100 transition-colors"
-                                                                    >
-                                                                        Reject
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleAction(req.id, 'accept')}
+                                                                        onClick={() => handleAction(req.id, 'approve')}
                                                                         className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-500 transition-colors shadow-sm"
                                                                     >
-                                                                        Accept
+                                                                        Approve
                                                                     </button>
                                                                 </div>
                                                             ) : (
@@ -401,11 +425,9 @@ export default function HRAdminOverview({ auth, requests }) {
                                             >
                                                 Previous
                                             </button>
-
                                             <span className="text-sm text-gray-600">
                                                 Page {currentPage} of {totalPages}
                                             </span>
-
                                             <button
                                                 type="button"
                                                 onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
@@ -420,7 +442,6 @@ export default function HRAdminOverview({ auth, requests }) {
                             </>
                         )}
                     </div>
-
                 </div>
             </div>
 
@@ -480,22 +501,6 @@ export default function HRAdminOverview({ auth, requests }) {
                                     {selectedRequest.status}
                                 </span>
                             </div>
-
-                            {selectedRequest.status === 'Rejected' && selectedRequest.remarks && (
-                                <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
-                                    <label className="block text-xs font-bold text-red-800 uppercase tracking-wider mb-2 flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                        </svg>
-                                        Reason for Rejection
-                                    </label>
-                                    <p className="text-sm text-red-700 whitespace-pre-wrap leading-relaxed break-all">
-                                        {selectedRequest.remarks.startsWith('HR|')
-                                            ? selectedRequest.remarks.substring(3)
-                                            : selectedRequest.remarks}
-                                    </p>
-                                </div>
-                            )}
                         </div>
 
                         <div className="mt-8 flex justify-end pt-4 border-t">
@@ -510,58 +515,12 @@ export default function HRAdminOverview({ auth, requests }) {
                 )}
             </Modal>
 
-            {/* --- REJECTION REASON INPUT MODAL --- */}
-            <Modal show={isRejectModalOpen} onClose={() => setIsRejectModalOpen(false)} maxWidth="md">
-                <div className="p-6 max-h-[85vh] overflow-y-auto">
-                    <div className="flex items-center justify-between border-b pb-4 mb-5">
-                        <h2 className="text-xl font-bold text-gray-900">Reason for Rejection</h2>
-                        <button onClick={() => setIsRejectModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <form onSubmit={submitRejection}>
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">
-                                Please provide a brief reason why this document request is being rejected.
-                            </label>
-                            <textarea
-                                value={rejectReason}
-                                onChange={(e) => setRejectReason(e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
-                                rows="4"
-                                placeholder="e.g., Missing requirements, incorrect form..."
-                                required
-                            />
-                        </div>
-
-                        <div className="mt-6 flex justify-end gap-3 pt-4 border-t">
-                            <button
-                                type="button"
-                                onClick={() => setIsRejectModalOpen(false)}
-                                className="rounded-md border border-gray-300 bg-white px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                className="rounded-md bg-red-600 px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-red-500 transition-colors"
-                            >
-                                Confirm Reject
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </Modal>
-
-            {/* --- 🟢 NEW: ACCEPT CONFIRMATION MODAL --- */}
-            <Modal show={isAcceptModalOpen} onClose={() => setIsAcceptModalOpen(false)} maxWidth="sm">
+            {/* --- APPROVE CONFIRMATION MODAL --- */}
+            <Modal show={isApproveModalOpen} onClose={() => setIsApproveModalOpen(false)} maxWidth="sm">
                 <div className="p-6">
                     <div className="flex items-center justify-between border-b pb-4 mb-5">
                         <h2 className="text-xl font-bold text-gray-900">Confirm Approval</h2>
-                        <button onClick={() => setIsAcceptModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                        <button onClick={() => setIsApproveModalOpen(false)} className="text-gray-400 hover:text-gray-600">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
@@ -575,17 +534,17 @@ export default function HRAdminOverview({ auth, requests }) {
                     <div className="mt-6 flex justify-end gap-3 pt-4 border-t">
                         <button
                             type="button"
-                            onClick={() => setIsAcceptModalOpen(false)}
+                            onClick={() => setIsApproveModalOpen(false)}
                             className="rounded-md border border-gray-300 bg-white px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none transition-colors"
                         >
                             Cancel
                         </button>
                         <button
                             type="button"
-                            onClick={submitAccept}
+                            onClick={submitApprove}
                             className="rounded-md bg-indigo-600 px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-indigo-500 transition-colors"
                         >
-                            Confirm Accept
+                            Confirm Approve
                         </button>
                     </div>
                 </div>

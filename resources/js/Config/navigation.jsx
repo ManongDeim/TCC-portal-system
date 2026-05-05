@@ -13,7 +13,7 @@ export const getDashboardLinks = () => [
         active: route().current('dashboard.announcements'),
     },
     {
-        label: 'Mission & Vision',
+        label: 'About Us',
         href: route('dashboard.mission-vision'),
         active: route().current('dashboard.mission-vision'),
     },
@@ -86,25 +86,40 @@ export const getDocumentSidebarLinks = (categories = [], activeCategory = 'Overv
 
 // Duty Meal Module Links
 
-export const getDutyMealLinks = () => [
-     {
-        label: 'Duty Meal Overview',
-        href: route('admin.duty-meals.index'),
-        active: route().current('admin.duty-meals.index'),
-    },
+// navigation.jsx
+
+// navigation.jsx
+
+export const getDutyMealLinks = (auth) => {
+    // 🟢 Extract the role safely from the auth object
+    const userRole = auth?.user?.role?.name?.toLowerCase().trim() || '';
+    const isAuditor = userRole.includes('audit');
+
+    const links = [
+         {
+            label: 'Duty Meal Overview',
+            href: route('admin.duty-meals.index'),
+            active: route().current('admin.duty-meals.index'),
+        }
+    ];
     
-    {
-        label: 'Set Up Roster',
-        href: route('admin.duty-meals.create'),
-        active: route().current('admin.duty-meals.create'),
-    },
+    // 🟢 Only inject the "Set Up Roster" link if they are NOT an auditor
+    if (!isAuditor) {
+        links.push({
+            label: 'Set Up Roster',
+            href: route('admin.duty-meals.create'),
+            active: route().current('admin.duty-meals.create'),
+        });
+    }
    
-    {
+    links.push({
         label: 'Duty Meal Archive',
         href: route('admin.duty-meals.archive'),
         active:  route().current('admin.duty-meals.archive'),
-    },
-];
+    });
+
+    return links;
+};
 
 export const getStaffDutyMealLinks = () => [
     {
@@ -224,20 +239,21 @@ export const getPRPOLinks = (auth) => {
     const isAdminOrDCSO = userRole === 'admin' || userRole.includes('director');
     const isProcurement = userRole.includes('procurement');
     const isInventory = userRole.includes('inventory');
+    const isOM = userRole.includes('operations manager') || userRole.includes('operations');
 
     const links = [];
 
     // 2. PR/PO Request (Admin, DCSO, Procurement, Inventory)
-    if (isAdminOrDCSO || isProcurement || isInventory) {
+    if (isAdminOrDCSO || isProcurement || isInventory || isOM) {
         links.push({ 
-            label: 'PR Request', 
+            label: 'PR Form', 
             href: route('prpo.purchase-requests.create'), 
             active: route().current('prpo.purchase-requests.*') 
         });
     }
 
     // 3. Approval Board (Admin, DCSO, Procurement, Inventory)
-    if (isAdminOrDCSO || isProcurement || isInventory) {
+    if (isAdminOrDCSO || isProcurement || isInventory || isOM) {
         links.push({ 
             label: 'Approval Board', 
             href: route('prpo.approval-board'), 
@@ -245,8 +261,8 @@ export const getPRPOLinks = (auth) => {
         });
     }
 
-    // 4. PO Generation (ONLY Admin, DCSO, Procurement)
-    if (isAdminOrDCSO || isProcurement) {
+    // 4. PO Generation 
+    if (isAdminOrDCSO || isProcurement || isOM || isInventory) {
         links.push({ 
             label: 'PO Generation', 
             href: route('prpo.purchase-orders.index'), 
@@ -255,11 +271,19 @@ export const getPRPOLinks = (auth) => {
     }
 
      // 1. Products Masterlist (ONLY Admin & DCSO)
-    if (isAdminOrDCSO) {
+    if (isAdminOrDCSO || isInventory) {
         links.push({ 
             label: 'Products Masterlist', 
             href: route('prpo.products.index'), 
             active: route().current('prpo.products.*') 
+        });
+    }
+
+    if (!isAdminOrDCSO && !isProcurement && !isInventory && !isOM) {
+        links.push({ 
+            label: 'PR/PO Status', 
+            href: route('prpo.status.index'), 
+            active: route().current('prpo.status.*')
         });
     }
 

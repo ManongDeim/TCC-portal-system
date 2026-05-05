@@ -13,34 +13,43 @@ export default function Home({ contents }) {
             headerClassName="mx-auto mb-1 w-full max-w-[96rem] sm:mb-6 2xl:max-w-[112rem]"
             header={
                 <h2 className="text-xl font-semibold leading-tight text-gray-800">
-                    Mission & Vision
+                    About Us
                 </h2>
             }
         >
-            <Head title="Mission & Vision" />
+            <Head title="About Us" />
 
             <div className="py-0 sm:py-12">
                 <div className="mx-auto w-full max-w-[96rem] sm:px-2 lg:px-4 2xl:max-w-[112rem]">
                     
-                    {/* 2. Replaced the single white box with a CSS Grid */}
+                    {/* Replaced the single white box with a CSS Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         
-                        {/* 3. Loop through the contents array from the database */}
+                        {/* Loop through the contents array from the database */}
                         {contents && contents.length > 0 ? (
                             contents.map((content) => (
-                                <div key={content.id} className="overflow-hidden bg-white shadow-sm sm:rounded-lg border border-gray-100">
+                                <div key={content.id} className="overflow-hidden bg-white shadow-sm sm:rounded-lg border border-gray-100 flex flex-col">
                                     
-                                    {/* Image display */}
+                                    {/* ✅ FIXED: Applied the same zoom, offset, and crop logic from the admin panel */}
                                     {content.image_path && (
-                                        <img 
-                                            src={`/storage/${content.image_path}`} 
-                                            alt={content.title || "Company Content"} 
-                                            className="w-full h-64 object-cover"
-                                        />
+                                        <div className="relative w-full aspect-[16/9] bg-gray-50 border-b border-gray-100 overflow-hidden flex items-center justify-center">
+                                            <img 
+                                                src={`/storage/${content.image_path}`} 
+                                                alt={content.title || "Company Content"} 
+                                                className="absolute left-1/2 top-1/2"
+                                                style={{
+                                                    transform: `translate(calc(-50% + ${content.image_offset_x ?? 0}px), calc(-50% + ${content.image_offset_y ?? 0}px)) scale(${content.image_zoom ?? 1})`,
+                                                    transformOrigin: 'center center',
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'contain',
+                                                }}
+                                            />
+                                        </div>
                                     )}
                                     
                                     {/* Text display */}
-                                    <div className="p-6">
+                                    <div className="p-6 flex-1">
                                         <span className="block mb-2 text-xs font-bold tracking-wider text-gray-500 uppercase">
                                             {content.type}
                                         </span>

@@ -23,10 +23,12 @@ use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\PurchaseRequestController;
 use App\Http\Controllers\Auth\SetupAccountController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\PRPOStatusController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 Route::get('/', function () {
@@ -36,7 +38,6 @@ Route::get('/', function () {
 Route::post('/forgot-password-notify', [AuthenticatedSessionController::class, 'requestPasswordReset'])
     ->name('password.request.admin');
 
-// Keep this protective wrapper exactly as it is!
 Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- HR MODULE (User Requests) ---
@@ -51,28 +52,79 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/hr-module/accounting-approvals', [HrRequestController::class, 'accountingApprovals'])->name('hr.accounting.index');
     Route::patch('/hr-module/accounting-approvals/{hrRequest}/status', [HrRequestController::class, 'updateAccountingStatus'])->name('hr.accounting.update');
 
-    // --- OVERVIEW: Now the main landing page! ---
+    // --- OVERVIEW DASHBOARD ---
     Route::get('/dashboard', function () {
-        $announcements = Announcement::with(['priorityLevel', 'branches'])
-                            ->latest()
-                            ->get();
+        $user = Auth::user();
+        $userRole = strtolower(trim($user->role->name ?? ''));
+        $isGlobalViewer = $userRole === 'admin' || str_contains($userRole, 'director');
 
-        $contents = CompanyContent::all();
+        $query = App\Models\Announcement::with(['priorityLevel', 'branches'])->latest();
+
+        if (!$isGlobalViewer) {
+            // 1. Grab primary branch
+            $branchIds = [$user->branch_id];
+            
+            // 2. Grab rotating branches
+            $rotating = Illuminate\Support\Facades\DB::table('branch_user')
+                ->where('user_id', $user->id)
+                ->pluck('branch_id')
+                ->toArray();
+            
+            // 3. Merge and clean the array
+            $allowedBranchIds = array_values(array_unique(array_filter(array_merge($branchIds, $rotating))));
+
+            \Illuminate\Support\Facades\Log::info('OVERVIEW RENDERED - Security Check:', [
+                'user' => $user->name,
+                'role' => $userRole,
+                'allowed_branches' => $allowedBranchIds
+            ]);
+
+            if (empty($allowedBranchIds)) {
+                $query->where('id', 0); // Safest way to return absolutely nothing
+            } else {
+                $query->whereHas('branches', function ($q) use ($allowedBranchIds) {
+                    $q->whereIn('branches.id', $allowedBranchIds); 
+                });
+            }
+        }
 
         return Inertia::render('Overview', [
-            'announcements' => $announcements,
-            'contents' => $contents
+            'announcements' => $query->get(),
+            'contents' => CompanyContent::all()
         ]);
     })->name('dashboard'); 
 
-    // --- ANNOUNCEMENTS ---
+
+    // --- ANNOUNCEMENTS BOARD ---
     Route::get('/dashboard/announcements', function () {
-        $announcements = Announcement::with(['priorityLevel', 'branches'])
-                            ->latest()
-                            ->get();
+        $user = Auth::user();
+        $userRole = strtolower(trim($user->role->name ?? ''));
+        $isGlobalViewer = $userRole === 'admin' || str_contains($userRole, 'director');
+
+        $query = App\Models\Announcement::with(['priorityLevel', 'branches'])->latest();
+
+        if (!$isGlobalViewer) {
+            $branchIds = [$user->branch_id];
+            $rotating = Illuminate\Support\Facades\DB::table('branch_user')->where('user_id', $user->id)->pluck('branch_id')->toArray();
+            $allowedBranchIds = array_values(array_unique(array_filter(array_merge($branchIds, $rotating))));
+
+            \Illuminate\Support\Facades\Log::info('DASHBOARD RENDERED - Security Check:', [
+                'user' => $user->name,
+                'role' => $userRole,
+                'allowed_branches' => $allowedBranchIds
+            ]);
+
+            if (empty($allowedBranchIds)) {
+                $query->where('id', 0); 
+            } else {
+                $query->whereHas('branches', function ($q) use ($allowedBranchIds) {
+                    $q->whereIn('branches.id', $allowedBranchIds); 
+                });
+            }
+        }
 
         return Inertia::render('Dashboard', [
-            'announcements' => $announcements
+            'announcements' => $query->get()
         ]);
     })->name('dashboard.announcements');
 
@@ -84,6 +136,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'contents' => $contents
         ]);
     })->name('dashboard.mission-vision');
+
+    // --- RESOURCES LINKS ---
+    Route::get('/resources/internal-links', function () {
+        return Inertia::render('Resources/InternalLinks');
+    })->name('resources.internal');
+
+    Route::get('/resources/external-links', function () {
+        return Inertia::render('Resources/ExternalLinks');
+    })->name('resources.external');
 
     // --- ORGANIZATIONAL CHART (USER VIEW) ---
     Route::get('/dashboard/org-chart', [OrgChartController::class, 'userIndex'])->name('dashboard.org-chart');
@@ -124,27 +185,22 @@ Route::get('/notifications/load-more', [NotificationController::class, 'loadMore
 Route::middleware(['auth', AdminMiddleware::class])->prefix('admin')->name('admin')->group(function(){
 
     Route::get('/logs', [SystemLogController::class, 'index'])->name('.logs.index');
+    Route::get('/logs/export', [SystemLogController::class, 'export'])->name('.logs.export');
     
     Route::get('/dashboard', function(){
-        // Count users where the status is exactly 'Active'
         $totalActiveEmployees = \App\Models\User::whereIn('status', ['Active', 'Password reset'])->count();
-        
-        // Count all existing branches
         $totalBranches = \App\Models\Branch::count();
 
-        // -> THE FIX: Count ONLY unique, logged-in users <-
         $activeSessions = \Illuminate\Support\Facades\DB::table('sessions')
             ->whereNotNull('user_id')
-            // Filter by last_activity timestamp (newer than 15 mins ago)
             ->where('last_activity', '>=', now()->subMinutes(15)->getTimestamp())
             ->distinct('user_id')
             ->count('user_id');
 
-        // Pass the variables to the Inertia frontend
         return Inertia::render('Admin/AdminDashboard', [
             'totalActiveEmployees' => $totalActiveEmployees,
             'totalBranches' => $totalBranches,
-            'activeSessions' => $activeSessions, // Pass the new variable
+            'activeSessions' => $activeSessions,
         ]);
     })->name('.dashboard');
 
@@ -153,31 +209,26 @@ Route::middleware(['auth', AdminMiddleware::class])->prefix('admin')->name('admi
     // ==========================================
     Route::get('/employees', [EmployeeController::class, 'index'])->name('.employees');
     
-    // Create Routes
     Route::post('/positions', [EmployeeController::class, 'storePosition'])->name('.positions.store');
     Route::post('/branches', [EmployeeController::class, 'storeBranch'])->name('.branches.store');
     Route::post('/departments', [EmployeeController::class, 'storeDepartment'])->name('.departments.store');
     Route::post('/roles', [EmployeeController::class, 'storeRole'])->name('.roles.store');
     Route::post('/users', [EmployeeController::class, 'storeUser'])->name('.users.store');
     
-    // Update & Action Routes
     Route::put('/users/{user}', [EmployeeController::class, 'updateUser'])->name('.users.update');
     Route::patch('/users/{user}/reset-device', [EmployeeController::class, 'resetDevice'])->name('.users.reset-device');
     Route::patch('/users/{user}/toggle-status', [EmployeeController::class, 'toggleStatus'])->name('.users.toggle-status');
     
-    // ALL Delete Routes (Safely parameterized)
     Route::delete('/users/{user}', [EmployeeController::class, 'destroy'])->name('.users.destroy');
     Route::delete('/departments/{department}', [EmployeeController::class, 'destroyDepartment'])->name('.departments.destroy');
     Route::delete('/roles/{role}', [EmployeeController::class, 'destroyRole'])->name('.roles.destroy');
     Route::delete('/positions/{position}', [EmployeeController::class, 'destroyPosition'])->name('.positions.destroy');
     Route::delete('/branches/{branch}', [EmployeeController::class, 'destroyBranch'])->name('.branches.destroy');
 
-    // Import/Export Routes
     Route::get('/employees/export', [EmployeeController::class, 'export'])->name('.employees.export');
     Route::get('/employees/import-template', [EmployeeController::class, 'downloadTemplate'])->name('.employees.template');
     Route::post('/employees/import', [EmployeeController::class, 'import'])->name('.employees.import');
 
-    // --- Company Content Management ---
     Route::get('/company-content', [CompanyContentController::class, 'index'])->name('.company-content.index');
     Route::post('/company-content', [CompanyContentController::class, 'store'])->name('.company-content.store');
     Route::put('/company-content/{companyContent}', [CompanyContentController::class, 'update'])->name('.company-content.update');
@@ -187,35 +238,34 @@ Route::middleware(['auth', AdminMiddleware::class])->prefix('admin')->name('admi
     Route::put('/company-content/type/{type}', [CompanyContentController::class, 'updateType'])->name('.company-content.type.update');
     Route::delete('/company-content/type/{type}', [CompanyContentController::class, 'destroyType'])->name('.company-content.type.destroy');
 
-    // --- Announcements & Notices ---
     Route::get('/announcements', [AnnouncementController::class, 'index'])->name('.announcements.index');
     Route::post('/announcements', [AnnouncementController::class, 'store'])->name('.announcements.store');
     Route::put('/announcements/{announcement}', [AnnouncementController::class, 'update'])->name('.announcements.update');
     Route::delete('/announcements/{announcement}', [AnnouncementController::class, 'destroy'])->name('.announcements.destroy');
     Route::post('/announcements/priority', [AnnouncementController::class, 'storePriority'])->name('.announcements.priority.store');
+    Route::put('/announcements/priority/{priority}', [AnnouncementController::class, 'updatePriority'])->name('.announcements.priority.update');
+    Route::delete('/announcements/priority/{priority}', [AnnouncementController::class, 'destroyPriority'])->name('.announcements.priority.destroy');
 
-    // --- Organizational Chart Management ---
     Route::post('/org-chart/asset', [OrgChartController::class, 'storeAsset'])->name('.org-chart.asset.store');
     Route::get('/org-chart', [OrgChartController::class, 'index'])->name('.org-chart.index');
+    Route::post('/org-chart/structure', [OrgChartController::class, 'saveStructure'])->name('.org-chart.structure.save'); // NEW JSON ROUTE
     Route::post('/org-chart', [OrgChartController::class, 'store'])->name('.org-chart.store');
     Route::put('/org-chart/{member}', [OrgChartController::class, 'update'])->name('.org-chart.update');
     Route::post('/org-chart/reorder', [OrgChartController::class, 'reorder'])->name('.org-chart.reorder'); 
     Route::delete('/org-chart/{member}', [OrgChartController::class, 'destroy'])->name('.org-chart.destroy');
 
-    // Document Repository Routes
     Route::post('/documents', [DocumentController::class, 'store'])->name('.documents.store');
+    Route::put('/documents/{document}', [DocumentController::class, 'update'])->name('.documents.update');
     Route::delete('/documents/{document}', [DocumentController::class, 'destroy'])->name('.documents.destroy');
     Route::post('/documents/category', [DocumentController::class, 'storeCategory'])->name('.documents.category.store');
     Route::delete('/documents/category/{id}', [DocumentController::class, 'destroyCategory'])->name('.documents.category.destroy');
 });
 
-// Admin Routes (Protect these with auth/admin middleware)
 Route::middleware(['auth'])->group(function () {
     Route::post('/employees/{user}/send-activation', [EmployeeController::class, 'sendActivationLink'])->name('employees.send-activation');
     Route::post('/employees/{user}/send-reset', [EmployeeController::class, 'sendResetLink'])->name('employees.send-reset');
 });
 
-// Guest Routes (For the user clicking the email link)
 Route::middleware(['guest'])->group(function () {
     Route::get('/setup-account', [SetupAccountController::class, 'showSetupForm'])->name('setup.account');
     Route::post('/setup-account', [SetupAccountController::class, 'setupPassword'])->name('setup.account.store');
@@ -240,7 +290,6 @@ Route::middleware(['auth', CheckDutyMealAccess::class])->group(function () {
     Route::patch('admin/participants/{id}/update-choice', [DutyMealController::class, 'updateParticipantChoice'])
     ->name('admin.participants.update-choice');
     
-    // NEW: Route for inline shift editing
     Route::patch('admin/participants/{id}/update-shift', [DutyMealController::class, 'updateParticipantShift'])
     ->name('admin.participants.update-shift');
     Route::delete('/admin/duty-meals/participants/{id}', [DutyMealController::class, 'removeParticipant'])->name('admin.participants.remove');
@@ -251,12 +300,16 @@ Route::middleware(['auth', CheckDutyMealAccess::class])->group(function () {
     Route::delete('/duty-meals/{id}', [DutyMealController::class, 'destroy'])->name('admin.duty-meals.destroy');
     Route::post('/duty-meals/bulk-delete', [DutyMealController::class, 'bulkDelete'])->name('admin.duty-meals.bulk-delete');
     
+    // 🟢 NEW: EXPORT DUTY MEALS (Global List)
+    Route::get('/admin/duty-meals/export', [DutyMealController::class, 'export'])->name('admin.duty-meals.export');
 });
 
 Route::middleware(['auth'])->group(function(){
     // --- HR Feedback Form ---
     Route::get('/hr/feedback', [\App\Http\Controllers\HR\FeedbackController::class, 'create'])->name('hr.feedback.create');
     Route::post('/hr/feedback', [\App\Http\Controllers\HR\FeedbackController::class, 'store'])->name('hr.feedback.store');
+
+    Route::get('/prpo/status', [PRPOStatusController::class, 'index'])->name('prpo.status.index');
 
     Route::prefix('hr')->name('hr.')->group(function(){
     
@@ -266,7 +319,7 @@ Route::middleware(['auth'])->group(function(){
             Route::post('/manpower-requests', [ManpowerRequestController::class, 'store'])->name('manpower-requests.store');
         });
 
-        Route::middleware(['role:admin,HR'])->group(function () {
+        Route::middleware(['role:admin,HR,HRBP'])->group(function () {
             Route::get('/feedback-submissions', [\App\Http\Controllers\HR\FeedbackController::class, 'index'])->name('feedback.index');
         });
         
@@ -287,13 +340,13 @@ Route::prefix('prpo')->name('prpo.')->middleware(['auth'])->group(function () {
     Route::get('/products/export', [ProductController::class, 'export'])->name('products.export');
 
     
-    // Supplier Routes
     Route::post('/suppliers', [SupplierController::class, 'store'])->name('suppliers.store');
     Route::put('/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
     Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');
     Route::patch('/suppliers/{supplier}/toggle-status', [SupplierController::class, 'toggleStatus'])->name('suppliers.toggle-status');
+    Route::get('/suppliers/template', [SupplierController::class, 'downloadTemplate'])->name('suppliers.template');
+Route::post('/suppliers/import', [SupplierController::class, 'import'])->name('suppliers.import');
 
-    // Product Routes
     Route::post('/products', [ProductController::class, 'store'])->name('products.store');
     Route::put('/products/{product}', [ProductController::class, 'update'])->name('products.update');
     Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
@@ -302,6 +355,8 @@ Route::prefix('prpo')->name('prpo.')->middleware(['auth'])->group(function () {
 
     Route::get('/purchase-request/create', [PurchaseRequestController::class, 'create'])->name('purchase-requests.create');
     Route::post('/purchase-request', [PurchaseRequestController::class, 'store'])->name('purchase-requests.store');
+    Route::put('/purchase-requests/{id}', [PurchaseRequestController::class, 'update'])
+    ->name('purchase-requests.update');
     
     
     Route::get('/approval-board', [PurchaseRequestController::class, 'approvalBoard'])->name('approval-board');
