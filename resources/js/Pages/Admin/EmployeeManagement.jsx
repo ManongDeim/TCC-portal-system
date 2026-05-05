@@ -36,6 +36,58 @@ export default function EmployeeManagement({ users = [], departments = [], posit
     const closeConfirmModal = () => setConfirmDialog({ ...confirmDialog, isOpen: false });
 
     // ==========================================
+    // BULK SELECTION STATE & LOGIC
+    // ==========================================
+    const [selectedUserIds, setSelectedUserIds] = useState([]);
+
+    const selectByStatus = (statusName) => {
+        const targetedUsers = filteredUsers.filter(u => {
+            if (statusName === 'Pending Setup') return u.status === 'Pending Setup' || !u.has_password;
+            return u.status === statusName;
+        });
+
+        const targetedIds = targetedUsers.map(u => u.id);
+
+        if (targetedIds.length === 0) {
+            triggerToast(`No "${statusName}" users found in the current view.`, 'error');
+            return;
+        }
+
+        setSelectedUserIds(targetedIds);
+        triggerToast(`Selected ${targetedIds.length} ${statusName} users.`, 'success');
+    };
+
+    const toggleUserSelection = (userId) => {
+        setSelectedUserIds(prev => prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]);
+    };
+
+    const handleBulkActivation = () => {
+        if (selectedUserIds.length === 0) return;
+
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Send Bulk Activation Links',
+            message: `Are you sure you want to send activation links to ${selectedUserIds.length} selected employees?`,
+            confirmText: 'Send Links',
+            confirmColor: 'bg-green-600 hover:bg-green-500',
+            onConfirm: () => {
+                closeConfirmModal();
+                triggerToast(`Sending ${selectedUserIds.length} activation links...`, 'success');
+                
+                Promise.all(selectedUserIds.map(id => window.axios.post(route('employees.send-activation', [id]))))
+                .then(() => {
+                    triggerToast('All activation links sent successfully!', 'success');
+                    setSelectedUserIds([]);
+                    router.reload({ only: ['users'] });
+                }).catch(error => {
+                    console.error("Bulk activation error:", error);
+                    triggerToast('Some links failed to send. Please try again.', 'error');
+                });
+            }
+        });
+    };
+
+    // ==========================================
     // FILTER STATE & LOGIC
     // ==========================================
     const [filterSearch, setFilterSearch] = useState('');
@@ -613,6 +665,34 @@ export default function EmployeeManagement({ users = [], departments = [], posit
                             <button className="rounded-md bg-gray-800 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white shadow-sm hover:bg-gray-700 transition flex-shrink-0" onClick={() => setUserModalOpen(true)}>
                                 + Add Users
                             </button>
+                            
+                            {/* NEW: Dynamic Quick Select Dropdown */}
+                            <select 
+                                className="rounded-md border border-yellow-300 bg-yellow-50 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-yellow-800 shadow-sm hover:bg-yellow-100 transition flex-shrink-0 focus:ring-0 focus:border-yellow-300"
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        selectByStatus(e.target.value);
+                                        e.target.value = "";
+                                    }
+                                }}
+                            >
+                                <option value="" className="text-gray-500">✓ Quick Select Status</option>
+                                <option value="Pending Setup" className="text-black font-medium">Pending Setup</option>
+                                <option value="Active" className="text-green-700 font-medium">Active</option>
+                                <option value="Disabled" className="text-gray-600 font-medium">Disabled</option>
+                                <option value="Password Reset" className="text-red-700 font-medium">Password Reset</option>
+                            </select>
+
+                            {/* NEW: The Send Links button only appears when users are selected */}
+                            {selectedUserIds.length > 0 && (
+                                <button 
+                                    className="rounded-md bg-green-600 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white shadow-sm hover:bg-green-500 transition flex-shrink-0" 
+                                    onClick={handleBulkActivation}
+                                >
+                                    ✉ Send Links ({selectedUserIds.length})
+                                </button>
+                            )}
+
                             <button className="rounded-md border border-gray-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-gray-700 shadow-sm hover:bg-gray-50 transition flex-shrink-0" onClick={() => setPositionModalOpen(true)}>
                                 Edit Positions
                             </button>
@@ -728,6 +808,21 @@ export default function EmployeeManagement({ users = [], departments = [], posit
                         <table className="min-w-full divide-y divide-gray-200 text-left text-sm text-gray-500">
                             <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200 shadow-sm text-xs uppercase text-gray-700">
                                 <tr>
+                                    {/* NEW: Checkbox Header */}
+                                    <th scope="col" className="px-4 py-3 w-10">
+                                        <input 
+                                            type="checkbox" 
+                                            className="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+                                            checked={selectedUserIds.length > 0 && selectedUserIds.length === filteredUsers.length}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setSelectedUserIds(filteredUsers.map(u => u.id));
+                                                } else {
+                                                    setSelectedUserIds([]);
+                                                }
+                                            }}
+                                        />
+                                    </th>
                                     <th scope="col" className="px-6 py-3 bg-gray-50 font-bold tracking-wider">
                                         <div className="flex items-center">
                                             <span>Name</span>
@@ -762,13 +857,22 @@ export default function EmployeeManagement({ users = [], departments = [], posit
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {filteredUsers.length === 0 ? (
                                     <tr>
-                                        <td colSpan="6" className="px-6 py-12 text-center text-gray-500 font-medium">
+                                        <td colSpan="7" className="px-6 py-12 text-center text-gray-500 font-medium">
                                             No employees found.
                                         </td>
                                     </tr>
                                 ) : (
                                     filteredUsers.map((employee) => (
-                                        <tr key={employee.id} className="border-b bg-white hover:bg-gray-50 transition-colors">
+                                        <tr key={employee.id} className={`border-b hover:bg-gray-50 transition-colors ${selectedUserIds.includes(employee.id) ? 'bg-indigo-50' : 'bg-white'}`}>
+                                            {/* NEW: Checkbox Cell */}
+                                            <td className="px-4 py-4 whitespace-nowrap">
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+                                                    checked={selectedUserIds.includes(employee.id)}
+                                                    onChange={() => toggleUserSelection(employee.id)}
+                                                />
+                                            </td>
                                             <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
                                                 {employee.name}
                                                 <div className="text-xs text-gray-500 mt-0.5">{employee.email}</div>
@@ -874,14 +978,22 @@ export default function EmployeeManagement({ users = [], departments = [], posit
                         ) : (
                             <div className="divide-y divide-gray-200">
                                 {filteredUsers.map((employee) => (
-                                    <div key={employee.id} className="p-4 bg-white">
+                                    <div key={employee.id} className={`p-4 ${selectedUserIds.includes(employee.id) ? 'bg-indigo-50' : 'bg-white'}`}>
                                         <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="font-medium text-gray-900 break-words">
-                                                    {employee.name}
-                                                </div>
-                                                <div className="text-xs text-gray-500 mt-0.5 break-all">
-                                                    {employee.email}
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 shrink-0"
+                                                    checked={selectedUserIds.includes(employee.id)}
+                                                    onChange={() => toggleUserSelection(employee.id)}
+                                                />
+                                                <div className="min-w-0">
+                                                    <div className="font-medium text-gray-900 break-words">
+                                                        {employee.name}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-0.5 break-all">
+                                                        {employee.email}
+                                                    </div>
                                                 </div>
                                             </div>
 
