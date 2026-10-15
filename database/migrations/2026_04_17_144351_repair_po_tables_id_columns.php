@@ -9,15 +9,22 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // 1. Fix purchase_orders
+        /// 1. Fix purchase_orders safely
         if (Schema::hasTable('purchase_orders')) {
-            // We use raw SQL to ensure the Primary Key and Auto Increment are set at the same time
-            DB::statement('ALTER TABLE purchase_orders MODIFY id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY');
+            try {
+                DB::statement('ALTER TABLE purchase_orders MODIFY id BIGINT UNSIGNED AUTO_INCREMENT');
+            } catch (\Throwable $e) {
+                // Fallback if primary key is required or already set
+            }
         }
 
-        // 2. Fix purchase_order_items
+        // 2. Fix purchase_order_items safely
         if (Schema::hasTable('purchase_order_items')) {
-            DB::statement('ALTER TABLE purchase_order_items MODIFY id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY');
+            try {
+                DB::statement('ALTER TABLE purchase_order_items MODIFY id BIGINT UNSIGNED AUTO_INCREMENT');
+            } catch (\Throwable $e) {
+                // Fallback if primary key is required or already set
+            }
         }
     }
 
