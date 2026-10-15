@@ -14,6 +14,7 @@ test('users can authenticate using the login screen', function () {
     $response = $this->post('/login', [
         'email' => $user->email,
         'password' => 'password',
+        'device_fingerprint' => 'test-device-id-12345',
     ]);
 
     $this->assertAuthenticated();
@@ -26,6 +27,7 @@ test('users can not authenticate with invalid password', function () {
     $this->post('/login', [
         'email' => $user->email,
         'password' => 'wrong-password',
+        'device_id' => 'test-device-id-12345',
     ]);
 
     $this->assertGuest();
