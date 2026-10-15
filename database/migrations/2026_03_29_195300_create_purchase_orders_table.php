@@ -18,7 +18,6 @@ return new class extends Migration
             $table->string('status')->default('pending');
             $table->text('attachments')->nullable();
             $table->decimal('total_amount', 12, 2)->default(0);
-            $table->text('remarks')->nullable();
             $table->timestamps();
         });
     }
