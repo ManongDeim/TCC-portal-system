@@ -6,9 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
+  
     public function up(): void
     {
         if (Schema::hasTable('purchase_orders')) {
@@ -24,17 +22,22 @@ return new class extends Migration
         }
     });
     }
-
-    /**
-     * Reverse the migrations.
-     */
+    }
+    
     public function down(): void
     {
-        Schema::table('purchase_orders', function (Blueprint $table) {
-            $table->dropColumn('attachments');
-        });
-        Schema::table('purchase_order_items', function (Blueprint $table) {
-            $table->dropColumn('status');
-        });
+        if (Schema::hasTable('purchase_orders')) {
+            Schema::table('purchase_orders', function (Blueprint $table) {
+                // Only drop the column if it exists
+                if (Schema::hasColumn('purchase_orders', 'attachments')) {
+                    $table->dropColumn('attachments');
+                }
+
+                // Do the same for the status column if it's in this file
+                if (Schema::hasColumn('purchase_orders', 'status')) {
+                    $table->dropColumn('status');
+                }
+            });
+        }
     }
 };
